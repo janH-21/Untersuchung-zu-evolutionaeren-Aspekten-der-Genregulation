@@ -155,6 +155,7 @@ gg.bio
 savePlot(gg.bio, "bodeplot_bio", w = 8, h = 9)
 ```
 
+## Zeitverlauf
 ```{r Zeitverlauf, echo = FALSE, eval = TRUE, message = FALSE}
 dataTimeCourse <- read.table("modelAnalysis/Cpp_model_RelA_VCAM1_f_0.5.txt",header=T)
 
