@@ -1,6 +1,6 @@
 ---
 title: "Abbildungen Modell Ergebnisse"
-author: ""
+author: "JH"
 date: ""
 output: html_document
 ---
@@ -13,7 +13,7 @@ savePath <- paste("figures/", gsub(":", "-", gsub(" ", "_", Sys.time())), sep=""
 dir.create(savePath)
 ```
 
-```{r packages, echo=FALSE, eval = TRUE,  message= FALSE}
+```{r Packages, echo=FALSE, eval = TRUE,  message= FALSE}
 # packages
 require(tidyverse)
 require(seewave)
@@ -21,7 +21,7 @@ require(scales)
 require(reshape2)
 ```
 
-```{r function declaratoins, echo=FALSE, eval = TRUE,  message= FALSE}
+```{r Funktionen, echo=FALSE, eval = TRUE,  message= FALSE}
 plotPhase <- function(dataModel, variable, colorScale, fontSettings, legendTitle, xlabel) {
   ggPhase <- ggplot(data = dataModel, aes(x=frequency, y=mad/3.1451*180)) +
               geom_line(aes(group = factor(variable), color=factor(variable))) +
@@ -61,7 +61,7 @@ savePlot <- function(g, plotName, w, h){
 
 
 ## Bodeplots
-```{r Plot Ekemente, echo=FALSE, eval = TRUE,  message= FALSE}
+```{r Plot Elemente, echo=FALSE, eval = TRUE,  message= FALSE}
 colorScale6 <- scale_color_manual(values=c('#000033','#000066','#000099','#0000CC','#0000FF','#3366CC'))
 colorScale7 <- scale_color_manual(values=c('#000033','#000066','#000099','#0000CC','#0000FF','#3366CC','#6699CC')) 
 colorScale2 <- scale_color_manual(values=c('#000033','#6699CC')) 
@@ -92,7 +92,7 @@ ggStandEnergy.d0 <- plotStandEnergy(dataModel, dataModel$d0, colorScale6, fontSe
 
 gg.d0 <- ggarrange(ggEnergy.d0, ggStandEnergy.d0, ggPhase.d0, 
                    nrow = 3, ncol = 1, common.legend = TRUE, legend = "bottom")
-gg.d0
+
 savePlot(gg.d0, "bodeplot_d0", w = 8, h = 9)
 
 ```
@@ -107,7 +107,7 @@ ggStandEnergy.k1 <- plotStandEnergy(dataModel, dataModel$k1, colorScale6, fontSe
 
 gg.k1 <- ggarrange(ggEnergy.k1, ggStandEnergy.k1, ggPhase.k1, 
                    nrow = 3, ncol = 1, common.legend = TRUE, legend = "bottom")
-gg.k1
+
 savePlot(gg.k1, "bodeplot_k1", w = 8, h = 9)
 ```
 
@@ -122,7 +122,7 @@ ggStandEnergy.offset <- plotStandEnergy(dataModel, dataModel$off, colorScale7, f
 
 gg.offset <- ggarrange(ggEnergy.offset, ggStandEnergy.offset, ggPhase.offset, 
                    nrow = 3, ncol = 1, common.legend = TRUE, legend = "bottom")
-gg.offset
+
 savePlot(gg.offset, "bodeplot_offset", w = 8, h = 9)
 
 ```
@@ -137,8 +137,8 @@ ggStandEnergy.basal <- plotStandEnergy(dataModel, dataModel$basal, colorScale7, 
 
 gg.basal <- ggarrange(ggEnergy.basal, ggStandEnergy.basal, ggPhase.basal, 
                    nrow = 3, ncol = 1, common.legend = TRUE, legend = "bottom")
-gg.basal
-#savePlot(gg.basal, "bodeplot_basal", w = 8, h = 9)
+
+savePlot(gg.basal, "bodeplot_basal", w = 8, h = 9)
 ```
 
 
@@ -151,7 +151,7 @@ ggStandEnergy.bio <- plotStandEnergy(dataModel, dataModel$parameterset, colorSca
 
 gg.bio <- ggarrange(ggEnergy.bio, ggStandEnergy.bio, ggPhase.bio, 
                    nrow = 3, ncol = 1, common.legend = TRUE, legend = "bottom")
-gg.bio
+
 savePlot(gg.bio, "bodeplot_bio", w = 8, h = 9)
 ```
 
@@ -186,7 +186,7 @@ ggplot(aes(x=t, y=value, colour = variable)) +
 
 gg.time <- ggarrange(ggStart, ggAll, ggEqui, 
                    nrow = 3, ncol = 1, common.legend = TRUE, legend = "bottom")
-gg.time
+
 savePlot(gg.time, "timeCourse_RelA", w = 8, h = 9)
 
 ```
