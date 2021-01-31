@@ -1,0 +1,683 @@
+---
+title: "3'-UTR"
+author: "JH"
+date: ""
+output: html_document
+---
+```{r Setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+options(width = 120)
+
+# Directory für Abbildungen
+savePath <- paste("figures/", gsub(":", "-", gsub(" ", "_", Sys.time())), sep="")
+dir.create(savePath)
+```
+
+```{r load packages, echo=FALSE, eval = TRUE,  message= FALSE}
+#load packages
+require(rmarkdown)
+require(tidyverse)
+require(pipeR)
+require(EnsDb.Hsapiens.v79)
+require(reshape2)
+require(eulerr)
+require(WebGestaltR)
+```
+
+```{r Funktionen, echo=FALSE, eval = TRUE,  message= FALSE}
+savePlot <- function(g, plotName, w, h){
+  ggsave(paste(savePath, "/", plotName, ".eps", sep =""), g, device = "eps", width  = w, height = h)
+  ggsave(paste(savePath, "/", plotName, ".png", sep =""), g, device = "png", width = w, height = h, dpi = 600)
+}
+```
+
+### 1. Datenformatierung
+
+```{r Lade hg38 Datensatz, echo=FALSE, eval = TRUE,  message= FALSE}
+hg38 <- read.delim("data/hg38.ensGene.conservation_calculation.gtf", header = FALSE, sep = "\t", dec = ".")
+```
+
+```{r Formatiere hg38 Datensatz, echo=FALSE, eval = TRUE,  message= FALSE}
+# Preallocation
+hg38_gene_id <- vector("list", nrow(hg38))
+hg38_transcript_id <- vector("list", nrow(hg38))
+hg38_gene_name <- vector("list", nrow(hg38))
+
+# Teile Spalte mit IDs in mehrere Spalten
+for(iter in 1:nrow(hg38)){
+  colContent <- toString(hg38$V9[iter])
+  colContent <- (strsplit(colContent, " "))
+  colContent <- colContent[[1]]
+  for(jter in 1:length(colContent)){
+    if(colContent[jter]=="gene_id"){
+      hg38_gene_id[iter] <- strsplit(colContent[jter+1], ";")
+    }
+    if(colContent[jter]=="transcript_id"){
+      hg38_transcript_id[iter] <- strsplit(colContent[jter+1], ";")
+    }
+    if(colContent[jter]=="gene_name"){
+      hg38_gene_name[iter] <- strsplit(colContent[jter+1], ";")
+    }
+  }
+}
+
+# Speichere Zwischenergebnisse
+df_hg38_gene_id <- hg38_gene_id %>% unlist %>% data.frame %>% 'colnames<-' (c("gene_id"))
+write.csv(df_hg38_gene_id, "data/df_hg38_gene_id.csv", row.names = FALSE)
+
+df_hg38_gene_name <- hg38_gene_name %>% unlist %>% data.frame %>% 'colnames<-' (c("gene_name"))
+write.csv(df_hg38_gene_name, "data/df_hg38_gene_name.csv", row.names = FALSE)
+
+df_hg38_transcript_id <- hg38_transcript_id %>% unlist %>% data.frame %>% 'colnames<-' (c("transcript_id"))
+write.csv(df_hg38_transcript_id, "data/df_hg38_transcript_id.csv", row.names = FALSE)
+
+
+# Erstelle neuen data frame
+df_chromosome <- hg38$V1 %>% data.frame %>% 'colnames<-' (c("chromosome"))
+df_sequence_type <- hg38$V3 %>% data.frame %>% 'colnames<-' (c("sequence_type"))
+df_strand <- hg38$V7 %>% data.frame %>% 'colnames<-' (c("strand"))
+df_length <- hg38$V5 - hg38$V4  %>% data.frame %>% 'colnames<-' (c("length"))
+df_conservation <- hg38$V12 %>% data.frame %>% 'colnames<-' (c("conservation"))
+
+hg38_ordered <- cbind(df_hg38_gene_name,
+                      df_df_hg38_gene_id,
+                      df_hg38_transcript_id,
+                      df_chromosome,
+                      df_strand,
+                      df_sequence_type,
+                      df_length,
+                      df_conservation)
+
+# Speichere Ergebnisse
+write.csv(hg38_ordered, "data/hg38_ordered.csv", row.names = FALSE)
+```
+
+```{r Pivot , echo=FALSE, eval = TRUE,  message= FALSE, results = 'hide'}
+# Einträge basierend auf Transkript ID 
+hg38_ordered <- read.csv("data/hg38_ordered.csv") # lade aus Datei, um nicht jedes Mal neu berechnen zu müssen
+hg38_pivot <- hg38_ordered %>%
+  melt(id.vars = c("transcript_id", "sequence_type"), measure.vars = c("length", "conservation")) %>%
+  dcast(transcript_id ~ sequence_type + variable, mean)
+
+# Funktionale Spaltennamen
+colnames(hg38_pivot) <-c("transcript_id",            
+                         "threeUTR_length",
+                         "threeUTR_conservation",
+                         "fiveUTR_length",           
+                         "fiveUTR_conservation",        
+                         "CDS_length",               
+                         "CDS_conservation",         
+                         "exon_length",             
+                          "exon_conservation",
+                         "start_codon_length",
+                         "start_codon_conservation",
+                         "stop_codon_length",
+                         "stop_codon_conservation",  
+                         "transcript_length",
+                         "transcript_conservation")
+
+
+unique(hg38_ordered$gene_id == hg38_ordered$gene_name) # interne Kontrolle
+mapIDs <- dplyr::select(hg38_ordered, c(1,3)) %>>% subset(!duplicated(transcript_id))
+hg38_pivot_all <- merge(mapIDs, hg38_pivot)
+
+# Bereinige Daten
+hg38_pivot_cleaned <- hg38_pivot_all %>>% 
+  dplyr::select(c("gene_name", 
+                  "transcript_id", 
+                  "threeUTR_length", 
+                  "threeUTR_conservation", 
+                  "fiveUTR_length", 
+                  "fiveUTR_conservation",        
+                  "CDS_length",               
+                  "CDS_conservation")) %>>%
+  dplyr::filter(!is.na(threeUTR_length),
+                !is.na(threeUTR_conservation),
+                !is.na(fiveUTR_length),
+                !is.na(fiveUTR_conservation),
+                !is.na(CDS_length),
+                !is.na(CDS_conservation)) %>>%
+  dplyr::filter(threeUTR_length>10,
+                fiveUTR_length>10,
+                CDS_length>10)
+
+# inträge basierend auf Gen ID
+hg38_pivot_unique <- hg38_pivot_cleaned %>%
+  melt(id.vars = c("gene_name"), measure.vars = c("threeUTR_length", 
+                                                  "threeUTR_conservation", 
+                                                  "fiveUTR_length", 
+                                                  "fiveUTR_conservation",        
+                                                  "CDS_length",               
+                                                  "CDS_conservation")) %>%
+  dcast(gene_name ~ variable, mean)
+
+```
+
+
+### 2. Transkriptverteilungen über Konservierungsscore
+```{r Transkriptdichte, echo=FALSE, eval=TRUE, results='hide', message= FALSE}
+hg38_dens_transcript <- hg38_ordered %>% 
+                          dplyr::filter(sequence_type %in% c("CDS", "3UTR", "5UTR")) %>%
+                          dplyr::filter(length > 10) %>%
+                          ggplot(aes(x=conservation, color = sequence_type)) +
+                            geom_density() +
+                            scale_color_manual(name="",
+                                               labels = c("3'-UTRs", "5'-UTRs", "CDS"),
+                                               values = c("red", "green", "blue"))+
+                            labs(x = "Konservierung", y = "Transkriptdichte") +
+                            theme(legend.position="bottom", 
+                                  legend.box = "horizontal",
+                                  legend.text = element_text(size=12),
+                                  plot.title = element_text(size=13, face="bold", hjust=0.5, lineheight=1.2),
+                                  plot.subtitle = element_text(size=10, face="italic", hjust=0.5),
+                                  axis.title.x = element_text(size=12), 
+                                  axis.title.y = element_text(size=12),  
+                                  axis.text.x = element_text(size=12),  
+                                  axis.text.y = element_text(size=12)) 
+```
+
+```{r Transkripthistogram, echo=FALSE, eval=TRUE, results='hide', message= FALSE}
+hg38_hist_transcript <- hg38_ordered %>% 
+                          dplyr::filter(sequence_type %in% c("CDS", "3UTR", "5UTR")) %>%
+                          dplyr::filter(length > 10) %>%
+                          ggplot(aes(x=conservation, color=sequence_type)) +
+                            geom_histogram(position="identity", alpha = 0, binwidth = 0.02) +
+                            scale_color_manual(name="",
+                                               labels = c("3'-UTRs", "5'-UTRs", "CDS"),
+                                               values = c("red", "green", "blue"))+
+                            labs(x = "Konservierung",y = "Anzahl der Transkripte") +
+                            theme(legend.position="bottom", 
+                                  legend.box = "horizontal",
+                                  legend.text = element_text(size=12),
+                                  plot.title = element_text(size=13, face="bold", hjust=0.5, lineheight=1.2),
+                                  plot.subtitle = element_text(size=10, face="italic", hjust=0.5),
+                                  axis.title.x = element_text(size=12), 
+                                  axis.title.y = element_text(size=12),  
+                                  axis.text.x = element_text(size=12),  
+                                  axis.text.y = element_text(size=12))  
+```
+
+```{r Speichere Abbildung, echo=FALSE, eval = TRUE,  message= FALSE}
+gboth <- ggarrange(hg38_dens_transcript, hg38_hist_transcript, nrow = 1, ncol = 2,common.legend = TRUE, legend = "bottom",widths = c(5,6))
+savePlot(gboth, "transcriptWise_density+histo", w = 8, h = 5)
+```
+
+### 3. Webgestalt GO Analyse
+```{r Ergänze Gene Symbols, echo=FALSE, eval = TRUE,  message= FALSE}
+hg38_symbl <- ensembldb::select(EnsDb.Hsapiens.v79, keys= hg38_pivot_unique$gene_name, keytype = "GENEID", columns = c("SYMBOL","GENEID"))
+hg38_pivot_symbl <- merge(hg38_pivot_unique, hg38_symbl, by.x = "gene_name", by.y = "GENEID", all.x = FALSE, all.y = FALSE)
+```
+
+```{r GO Analyse, echo=FALSE, eval = FALSE,  message= FALSE}
+for(cons in c(0.6, 0.7, 0.8, 0.9)){
+  for(len in c(1000, 1500, 2000, 5000)){
+      
+      # Wähle Genliste
+      geneList <- hg38_pivot_unique %>>% dplyr::filter(threeUTR_length > len, threeUTR_conservation > cons)
+
+      for(process in c("geneontology_Biological_Process", "geneontology_Molecular_Function")){
+        for (method in c("top","fdr")) {
+          
+          pName = paste(format(Sys.time(), "%Y-%m-%d_%H-%M"), len, cons, process, method, sep="_")
+            
+          webGestaltResults <- WebGestaltR(enrichMethod = "ORA", organism = "hsapiens", enrichDatabase = process,
+                                           interestGene = geneList$gene_name, interestGeneType = "ensembl_gene_id", 
+                                           collapseMethod = "mean",
+                                           referenceGene = hg38_pivot_unique$gene_name, referenceGeneType = "ensembl_gene_id",
+                                           minNum = 5, maxNum = 2000, 
+                                           sigMethod = method, fdrMethod = "BH", fdrThr = 0.01, topThr = 20, 
+                                           reportNum = 20, perNum = 1000, gseaP = 1,
+                                           isOutput = TRUE, outputDirectory = "data/GOanalysis", projectName = pName,
+                                           hostName = "http://www.webgestalt.org/"
+          )
+          
+        }
+      }
+  }
+}
+```
+
+```{r GO Abbildungen, echo=FALSE, eval = TRUE,  message= FALSE}
+# Definiere Funktion
+mkGOplot <- function(GOpath, plotName){
+  
+  GOdata <-  read.csv(GOpath, header = TRUE, sep = "\t", dec = ".")
+  
+  gEnrich <- GOdata %>% 
+              ggplot(aes(x=enrichmentRatio, y=description)) +
+                geom_bar(stat = "identity") +
+                theme(axis.title.y=element_blank()) +
+                xlab("Anreicherungsfaktor")
+
+  gFDR <- GOdata %>% 
+            ggplot(aes(x=FDR, y=description)) +
+              geom_bar(stat = "identity") +
+              theme(axis.title.y=element_blank(),
+                    axis.text.y=element_blank(),
+                    axis.ticks.y=element_blank()) +
+              xlab("FDR")
+
+  gCounts <- GOdata %>% 
+              melt(id.vars = "description", measure.vars = c("size", "expect", "overlap")) %>%
+              ggplot(aes(value, description, fill = variable)) +
+                geom_bar(position = "stack", stat = "identity") +
+                scale_fill_manual(name = "", label = c("GO term", "Erwartet", "Gefunden"), values = c("grey", "limegreen",  "deepskyblue3")) +
+                theme(axis.title.y=element_blank(),
+                      axis.text.y=element_blank(),
+                      axis.ticks.y=element_blank(),
+                      legend.position = c(.9, .97)) +
+                xlab("Anzahl")
+
+  gGO <- grid.arrange(gEnrich, gFDR, gCounts, nrow = 1, ncol = 3, widths = c(4,1,3))
+  savePlot(gGO, plotName, 14, 10)
+
+  }
+
+# Abbildung für Molekulare Funktion
+mkGOplot("data/GOanalysis/Project_2020_11_22_21_09_1000_0_6_geneontology_Molecular_Function_fdr/enrichment_results_2020_11_22_21_09_1000_0_6_geneontology_Molecular_Function_fdr.txt", "GO_MolFun_barplot")
+
+# Abbildung für Biologischen Prozess (nicht enthalten)
+mkGOplot("data/GOanalysis/Project_2020_11_22_21_08_1000_0_6_geneontology_Biological_Process_fdr/enrichment_results_2020_11_22_21_08_1000_0_6_geneontology_Biological_Process_fdr.txt", "GO_BioPro_barplot")
+```
+
+```{r Exportiere GO Ergebnisse, echo=FALSE, eval = TRUE,  message= FALSE}
+# Definiere Exporfunktion
+exportGOtable <- function(resultData){
+  resultData <- subset(resultData, select = c(description, 
+                                              geneSet, 
+                                              size, 
+                                              expect, 
+                                              overlap, 
+                                              enrichmentRatio, 
+                                              pValue, 
+                                              FDR))
+  colnames(resultData) <- c("Beschreibung", 
+                           "Genset (GO term)", 
+                           "Anzahl d. Gene", 
+                           "Erwartete Anzahl Gene von Interesse",
+                           "Gefundene Anzahl Gene von Interesse",
+                           "Anreicherungsfaktor",
+                           "p",
+                           "FDR")
+  return(resultData)
+}
+
+
+
+wd <- "data/GOanalysis/"
+GOdirs <- dir(path = wd, pattern = "Project.*fdr")
+
+for(GOdirPath in GOdirs){
+  
+  # Wähle Webgestalt Ergebnisdatei
+  GOresultFile <- dir(path = paste(wd, GOdirPath, sep =""), pattern = "_results_")
+  
+  # Erstelle Ausgabedatei
+  fileOut <- GOresultFile %>% 
+    substr(20, nchar(GOresultFile)-4) %>%
+    paste(wd, ., ".csv",sep="")
+  
+  # Exportiere Daten
+  read.csv(paste(wd, GOdirPath, "/", GOresultFile, sep = ""), header = TRUE, sep = "\t", dec = ".") %>% 
+    exportGOtable %>%
+    write.csv(fileOut)
+
+}
+```
+
+```{r Finde durch Webgestalt duplizierte Einträge, echo=FALSE, eval = TRUE}
+mappedIDs <- read.csv("data/GOanalysis/Project_2020_11_22_21_09_1000_0_6_geneontology_Molecular_Function_fdr/interestingID_mappingTable_2020_11_22_21_09_1000_0_6_geneontology_Molecular_Function_fdr.txt", header = TRUE, sep="\t")
+
+doubleEntries <- mappedIDs[mappedIDs$userId%in% mappedIDs[duplicated(mappedIDs$userId),"userId"],] 
+
+doubleEntries %>% write.csv("data/GOanalysis/Project_2020_11_22_21_09_1000_0_6_geneontology_Molecular_Function_fdr/duplicated_IDs.txt", row.names = FALSE)
+
+```
+
+### 4. Überrepräsentationsanalyse
+```{r Ergeänze Transkriptionsfaktordaten, echo=FALSE, eval = TRUE,  message= FALSE}
+TFgenom <- read.csv("data/human_tf_genomatix.txt", header = FALSE) 
+colnames(TFgenom) <- "gene_name"
+TFgenom$isTF <- replicate(nrow(TFgenom), TRUE)
+hg38_pivot_TF <- merge(hg38_pivot_symbl, TFgenom, by.x = "SYMBOL", by.y = "gene_name", all.x = TRUE, all.y = FALSE)
+hg38_pivot_TF$isTF[is.na(hg38_pivot_TF$isTF)] <- FALSE
+```
+
+```{r bereite Überrepräsentationsanalyse vor, echo=FALSE, eval = TRUE,  message= FALSE}
+# Anzahl Gene in Gensets
+TFs <- hg38_pivot_TF %>>% 
+  dplyr::filter(isTF == TRUE) %>>% 
+  nrow
+all <- hg38_pivot_TF %>>% 
+  nrow
+lenCons <- hg38_pivot_TF %>>% 
+  dplyr::filter(threeUTR_length>1000, threeUTR_conservation > 0.6) %>>% 
+  nrow
+lenConsTF <- hg38_pivot_TF %>>% 
+  dplyr::filter(threeUTR_length>1000, threeUTR_conservation > 0.6, isTF == TRUE) %>>% 
+  nrow
+
+# Korrigiere Gesamtzahl um Faktor im Mapping verlorener Transkriptionsfaktoren
+all <- floor(all*TFs/nrow(TFgenom))
+```
+
+```{r Überrepräsentationsanalyse, echo=TRUE, eval = TRUE,  message= FALSE}
+# Überrepräsentationsfaktor
+rEnrichment <- ((lenConsTF/lenCons)/(TFs/all))
+
+# Hypergeometrischer Test
+pEnrichment <- phyper(lenConsTF-1,
+                      TFs,
+                      (all - TFs),
+                      lenCons,
+                      lower.tail = FALSE)
+
+# Ergebnisse
+cat("Überrepräsentationsfaktor = ", rEnrichment, "\n", "p (hypergeometrisch) = ", pEnrichment, sep="")
+```
+
+```{r Venniagramm, echo=FALSE, eval = TRUE,  message= FALSE}
+abc <- c(A = all - TFs - lenCons + lenConsTF, 
+         B = 0, 
+         C = 0, 
+         "A&B" = lenCons - lenConsTF, 
+         "A&C" = TFs - lenConsTF, 
+         "A&B&C" = lenConsTF)
+
+g <- plot(euler(abc), 
+      labels = c(paste("alle Gene,\n n = ", toString(all-lenCons-TFs+lenConsTF)),
+                  paste("\n Transkriptionsfaktoren,\n n = ", toString(TFs-lenConsTF)),
+                  paste("\n \n Gene mit 3'UTR Länge > 1000bp und Kons.>0.6,\n n = ",toString(lenCons-lenConsTF),
+                        "\n\n TFs mit 3'UTR Länge > 1000bp und Kons.>0.6,\n n = ",toString(lenConsTF)
+                        )),
+      fill = c("orange", "blue", "green", "red"),
+      alpha = c(0.6,0.7,0.6),
+      edges = "transparent"
+)
+
+savePlot(g, "venn", w = 4, h = 4)
+```
+
+
+### 5. Halbwertszeitverteilungen
+```{r Ergänze Halbwertszeiten, echo=FALSE, eval = TRUE,  message= FALSE}
+halfLife <- read.csv("data/human_table2.txt", sep="\t")
+hg38_pivot_half <- merge(hg38_pivot_TF, halfLife, by.x = "SYMBOL", by.y = "name", all.x = FALSE, all.y = FALSE)
+```
+
+```{r Abbildungen: isolierte Faktoren, echo=FALSE, eval = TRUE,  message= FALSE}
+##### Konservierung #####
+colors = c("alle" = "black", "kons" = "green", "nkons" = "blue")
+consDens <- ggplot() +
+  geom_density(data = hg38_pivot_half, aes(x=Half.life.min, color = "alle")) +
+  geom_density(data = hg38_pivot_half %>% dplyr::filter(threeUTR_conservation > 0.6), aes(x=Half.life.min, color = "kons")) + 
+  geom_density(data = hg38_pivot_half %>% dplyr::filter(threeUTR_conservation <= 0.6), aes(x=Half.life.min, color = "nkons")) +
+  labs(x = "HWZ (min)", y = "Gendichte", color = "") +
+  scale_color_manual(values = colors) + 
+  theme(legend.position="bottom", legend.box = "horizontal", legend.text = element_text(size=12),
+        plot.title = element_text(size=13, face="bold", hjust=0.5, lineheight=1.2),
+        plot.subtitle = element_text(size=10, face="italic", hjust=0.5),
+        axis.title.x = element_text(size=12), 
+        axis.title.y = element_text(size=12),  
+        axis.text.x = element_text(size=12),  
+        axis.text.y = element_text(size=12))
+
+consCums <- ggplot() +
+  stat_ecdf(data = hg38_pivot_half, aes(x=Half.life.min, color = "alle")) +
+  stat_ecdf(data = hg38_pivot_half %>% dplyr::filter(threeUTR_conservation > 0.6), aes(x=Half.life.min, color = "kons")) + 
+  stat_ecdf(data = hg38_pivot_half %>% dplyr::filter(threeUTR_conservation <= 0.6), aes(x=Half.life.min, color = "nkons")) +
+  labs(x = "HWZ (min)", y = "kumulative Gendichte", color = "") +
+  scale_color_manual(values = colors) + 
+  theme(legend.position="bottom", legend.box = "horizontal", legend.text = element_text(size=12),
+        plot.title = element_text(size=13, face="bold", hjust=0.5, lineheight=1.2),
+        plot.subtitle = element_text(size=10, face="italic", hjust=0.5),
+        axis.title.x = element_text(size=12), 
+        axis.title.y = element_text(size=12),  
+        axis.text.x = element_text(size=12),  
+        axis.text.y = element_text(size=12))
+
+##### Länge #####
+colors = c("alle" = "black", "lang" = "green", "kurz" = "blue")
+lenDens <- ggplot() +
+  geom_density(data = hg38_pivot_half, aes(x=Half.life.min, color = "alle")) +
+  geom_density(data = hg38_pivot_half %>% dplyr::filter(threeUTR_length > 1000), aes(x=Half.life.min, color = "lang")) + 
+  geom_density(data = hg38_pivot_half %>% dplyr::filter(threeUTR_length <= 1000), aes(x=Half.life.min, color = "kurz")) +
+  labs(x = "HWZ (min)", y = "Gendichte", color = "") +
+  scale_color_manual(values = colors) + 
+  theme(legend.position="bottom", legend.box = "horizontal", legend.text = element_text(size=12),
+        plot.title = element_text(size=13, face="bold", hjust=0.5, lineheight=1.2),
+        plot.subtitle = element_text(size=10, face="italic", hjust=0.5),
+        axis.title.x = element_text(size=12), 
+        axis.title.y = element_text(size=12),  
+        axis.text.x = element_text(size=12),  
+        axis.text.y = element_text(size=12))
+
+lenCums <- ggplot() +
+  stat_ecdf(data = hg38_pivot_half, aes(x=Half.life.min, color = "alle")) +
+  stat_ecdf(data = hg38_pivot_half %>% dplyr::filter(threeUTR_length > 1000), aes(x=Half.life.min, color = "lang")) + 
+  stat_ecdf(data = hg38_pivot_half %>% dplyr::filter(threeUTR_length <= 1000), aes(x=Half.life.min, color = "kurz")) +
+  labs(x = "HWZ (min)", y = "kumulative Gendichte", color = "") +
+  scale_color_manual(values = colors) + 
+  theme(legend.position="bottom", legend.box = "horizontal", legend.text = element_text(size=12),
+        plot.title = element_text(size=13, face="bold", hjust=0.5, lineheight=1.2),
+        plot.subtitle = element_text(size=10, face="italic", hjust=0.5),
+        axis.title.x = element_text(size=12), 
+        axis.title.y = element_text(size=12),  
+        axis.text.x = element_text(size=12),  
+        axis.text.y = element_text(size=12))
+
+##### Transkriptionsfaktoren #####
+colors = c("alle" = "black", "TF" = "green", "nTF" = "blue")
+TFDens <- ggplot() +
+  geom_density(data = hg38_pivot_half, aes(x=Half.life.min, color = "alle")) +
+  geom_density(data = hg38_pivot_half %>% dplyr::filter(isTF == TRUE), aes(x=Half.life.min, color = "TF")) + 
+  geom_density(data = hg38_pivot_half %>% dplyr::filter(isTF != TRUE), aes(x=Half.life.min, color = "nTF")) +
+  labs(x = "HWZ (min)", y = "Gendichte", color = "") +
+  scale_color_manual(values = colors) + 
+  theme(legend.position="bottom", legend.box = "horizontal", legend.text = element_text(size=12),
+        plot.title = element_text(size=13, face="bold", hjust=0.5, lineheight=1.2),
+        plot.subtitle = element_text(size=10, face="italic", hjust=0.5),
+        axis.title.x = element_text(size=12), 
+        axis.title.y = element_text(size=12),  
+        axis.text.x = element_text(size=12),  
+        axis.text.y = element_text(size=12))
+
+TFCums <- ggplot() +
+  stat_ecdf(data = hg38_pivot_half, aes(x=Half.life.min, color = "alle")) +
+  stat_ecdf(data = hg38_pivot_half %>% dplyr::filter(isTF == TRUE), aes(x=Half.life.min, color = "TF")) + 
+  stat_ecdf(data = hg38_pivot_half %>% dplyr::filter(isTF != TRUE), aes(x=Half.life.min, color = "nTF")) +
+  labs(x = "HWZ (min)", y = "kumulative Gendichte", color = "") +
+  scale_color_manual(values = colors) + 
+  theme(legend.position="bottom", legend.box = "horizontal", legend.text = element_text(size=12),
+        plot.title = element_text(size=13, face="bold", hjust=0.5, lineheight=1.2),
+        plot.subtitle = element_text(size=10, face="italic", hjust=0.5),
+        axis.title.x = element_text(size=12), 
+        axis.title.y = element_text(size=12),  
+        axis.text.x = element_text(size=12),  
+        axis.text.y = element_text(size=12))
+
+
+# speichere Ergebnisse
+ggAll <- ggarrange(consDens, consCums,
+                      lenDens, lenCums,
+                      TFDens, TFCums,
+                      nrow = 3, ncol = 2, common.legend = TRUE, legend="bottom")
+
+savePlot(ggAll, "halfLifeDistribution_all", w = 8, h = 12)
+```
+
+```{r Abbildungen TFs + Länge/Konservoerung, echo=FALSE, eval = TRUE,  message= FALSE}
+colors = c("alle" = "black", "lang + kons TF" = "green", "lang + kons" = "royalblue4" , "alle TF" = "deepskyblue2")
+
+dens <- ggplot() +
+  geom_density(data = hg38_pivot_half, aes(x=Half.life.min, color = "alle")) +
+  geom_density(data = hg38_pivot_half %>% dplyr::filter(threeUTR_conservation > 0.6 & threeUTR_length > 1000 &  isTF == TRUE), aes(x=Half.life.min, color = "lang + kons TF")) + 
+  geom_density(data = hg38_pivot_half %>% dplyr::filter(threeUTR_conservation > 0.6 & threeUTR_length > 1000), aes(x=Half.life.min, color = "lang + kons")) +
+  geom_density(data = hg38_pivot_half %>% dplyr::filter(isTF == TRUE), aes(x=Half.life.min, color = "alle TF")) + 
+  labs(x = "HWZ (min)", y = "Gendichte", color = "") +
+  scale_color_manual(values = colors) + 
+  theme(legend.position=c(0.76,0.82), legend.box = "horizontal", legend.text = element_text(size=12),
+        plot.title = element_text(size=13, face="bold", hjust=0.5, lineheight=1.2),
+        plot.subtitle = element_text(size=10, face="italic", hjust=0.5),
+        axis.title.x = element_text(size=12), 
+        axis.title.y = element_text(size=12),  
+        axis.text.x = element_text(size=12),  
+        axis.text.y = element_text(size=12))
+
+cumDens <- ggplot() +
+  stat_ecdf(data = hg38_pivot_half, aes(x=Half.life.min, color = "alle")) +
+  stat_ecdf(data = hg38_pivot_half %>% dplyr::filter(threeUTR_conservation > 0.6 & threeUTR_length > 1000 &  isTF == TRUE), aes(x=Half.life.min, color = "lang + kons TF")) + 
+  stat_ecdf(data = hg38_pivot_half %>% dplyr::filter(threeUTR_conservation > 0.6 & threeUTR_length > 1000), aes(x=Half.life.min, color = "lang + kons")) +
+  stat_ecdf(data = hg38_pivot_half %>% dplyr::filter(isTF == TRUE), aes(x=Half.life.min, color = "alle TF")) + 
+  labs(x = "HWZ (min)", y = "kumulative Gendichte", color = "") +
+  scale_color_manual(values = colors) + 
+  theme(legend.position="none",
+        plot.title = element_text(size=13, face="bold", hjust=0.5, lineheight=1.2),
+        plot.subtitle = element_text(size=10, face="italic", hjust=0.5),
+        axis.title.x = element_text(size=12), 
+        axis.title.y = element_text(size=12),  
+        axis.text.x = element_text(size=12),  
+        axis.text.y = element_text(size=12))
+
+ggTFvsLC <- ggarrange(dens, cumDens, nrow = 1, ncol = 2, common.legend = TRUE, legend="bottom")
+savePlot(ggTFvsLC, "halfLifeDensity_TFvsLC", w = 8, h =4)
+```
+        
+```{r Abbildungen: TF + Länge, TF + Konservierung, echo=FALSE, eval = TRUE,  message= FALSE}
+# kons vs. nkons TFs
+colors = c("alle TF" = "black", "kons TF" = "green", "nkons TF" = "blue")
+
+densTFcons <- ggplot() +
+  geom_density(data = hg38_pivot_half %>% dplyr::filter(isTF == TRUE), aes(x=Half.life.min, color = "alle TF")) +
+  geom_density(data = hg38_pivot_half %>% dplyr::filter(threeUTR_conservation > 0.6 &  isTF == TRUE), aes(x=Half.life.min, color = "kons TF")) + 
+  geom_density(data = hg38_pivot_half %>% dplyr::filter(threeUTR_conservation <= 0.6 &  isTF == TRUE), aes(x=Half.life.min, color = "nkons TF")) +
+  labs(x = "HWZ (min)", y = "Gendichte", color = "") +
+  scale_color_manual(values = colors) + 
+  theme(legend.position="bottom", legend.box = "horizontal", legend.text = element_text(size=12),
+        plot.title = element_text(size=13, face="bold", hjust=0.5, lineheight=1.2),
+        plot.subtitle = element_text(size=10, face="italic", hjust=0.5),
+        axis.title.x = element_text(size=12), 
+        axis.title.y = element_text(size=12),  
+        axis.text.x = element_text(size=12),  
+        axis.text.y = element_text(size=12))
+
+cumDensTFcons <- ggplot() +
+  stat_ecdf(data = hg38_pivot_half %>% dplyr::filter(isTF == TRUE), aes(x=Half.life.min, color = "alle TF")) +
+  stat_ecdf(data = hg38_pivot_half %>% dplyr::filter(threeUTR_conservation > 0.6 &  isTF == TRUE), aes(x=Half.life.min, color = "kons TF")) + 
+  stat_ecdf(data = hg38_pivot_half %>% dplyr::filter(threeUTR_conservation <= 0.6 &  isTF == TRUE), aes(x=Half.life.min, color = "nkons TF")) +
+  labs(x = "HWZ (min)", y = "kumulative Gendichte", color = "") +
+  scale_color_manual(values = colors) + 
+  theme(legend.position="bottom", legend.box = "horizontal", legend.text = element_text(size=12),
+        plot.title = element_text(size=13, face="bold", hjust=0.5, lineheight=1.2),
+        plot.subtitle = element_text(size=10, face="italic", hjust=0.5),
+        axis.title.x = element_text(size=12), 
+        axis.title.y = element_text(size=12),  
+        axis.text.x = element_text(size=12),  
+        axis.text.y = element_text(size=12))
+
+#lange vs. kurze TFs
+colors = c("alle TF" = "black", "lang TF" = "green", "kurz TF" = "blue")
+
+densTFlen <- ggplot() +
+  geom_density(data = hg38_pivot_half %>% dplyr::filter(isTF == TRUE), aes(x=Half.life.min, color = "alle TF")) +
+  geom_density(data = hg38_pivot_half %>% dplyr::filter(threeUTR_length > 1000 &  isTF == TRUE), aes(x=Half.life.min, color = "lang TF")) + 
+  geom_density(data = hg38_pivot_half %>% dplyr::filter(threeUTR_length <= 1000 &  isTF == TRUE), aes(x=Half.life.min, color = "kurz TF")) +
+  labs(x = "HWZ (min)", y = "Gendichte", color = "") +
+  scale_color_manual(values = colors) + 
+  theme(legend.position="bottom", legend.box = "horizontal", legend.text = element_text(size=12),
+        plot.title = element_text(size=13, face="bold", hjust=0.5, lineheight=1.2),
+        plot.subtitle = element_text(size=10, face="italic", hjust=0.5),
+        axis.title.x = element_text(size=12), 
+        axis.title.y = element_text(size=12),  
+        axis.text.x = element_text(size=12),  
+        axis.text.y = element_text(size=12))
+
+cumDensTFlen <- ggplot() +
+  stat_ecdf(data = hg38_pivot_half %>% dplyr::filter(isTF == TRUE), aes(x=Half.life.min, color = "alle TF")) +
+  stat_ecdf(data = hg38_pivot_half %>% dplyr::filter(threeUTR_length > 1000 &  isTF == TRUE), aes(x=Half.life.min, color = "lang TF")) + 
+  stat_ecdf(data = hg38_pivot_half %>% dplyr::filter(threeUTR_length <= 1000 &  isTF == TRUE), aes(x=Half.life.min, color = "kurz TF")) +
+  labs(x = "HWZ (min)", y = "kumulative Gendichte", color = "") +
+  scale_color_manual(values = colors) + 
+  theme(legend.position="bottom", legend.box = "horizontal", legend.text = element_text(size=12),
+        plot.title = element_text(size=13, face="bold", hjust=0.5, lineheight=1.2),
+        plot.subtitle = element_text(size=10, face="italic", hjust=0.5),
+        axis.title.x = element_text(size=12), 
+        axis.title.y = element_text(size=12),  
+        axis.text.x = element_text(size=12),  
+        axis.text.y = element_text(size=12))
+
+
+# speichere Ergbenisse
+ggTFboth <- ggarrange(densTFcons, cumDensTFcons,
+                      densTFlen, cumDensTFlen, 
+                      nrow = 2, ncol = 2, common.legend = TRUE, legend="bottom")
+
+savePlot(ggTFboth, "halfLifeDensity_TF_both", w = 8, h = 8)
+```
+
+
+### 6. ANOVA model
+```{r ANOVA Modell, echo=FALSE, eval = TRUE}
+# Modelldefinitionen
+anovaData <- cbind(halfLife = hg38_pivot_half$Half.life.min,
+                   isTF = (hg38_pivot_half$isTF == TRUE),
+                   isCO = (hg38_pivot_half$threeUTR_conservation >0.6),
+                   isLE = (hg38_pivot_half$threeUTR_length > 1000)
+                   ) %>>% as.data.frame()
+
+ANOVAmodel1 <- (lm((halfLife) ~ isTF+isCO+isLE, data=anovaData)) # ohne Interaktionen
+ANOVAmodel2 <- (lm((halfLife) ~ isTF*isCO*isLE, data=anovaData)) # mit Interaktionen
+
+# Speichere Ergebnisse
+summary(ANOVAmodel1) %>% capture.output(file = paste(savePath, "anova_model1.txt", sep=""))
+summary(ANOVAmodel2) %>% capture.output(file = paste(savePath, "anova_model2.txt", sep=""))
+```
+
+```{r Abbildung: Effekt einzelner Faktoren und deren Interkation, echo=FALSE, eval = TRUE}
+anova2 <- summary(ANOVAmodel2) 
+barANOVA <- as.data.frame(anova2$coefficients) %>% 
+              tibble::rownames_to_column('group') %>%
+              set_colnames(c("group", "Estimate", "Error", "tValue", "p")) %>%
+              ggplot(aes(x=factor(group, c("(Intercept)","isCO","isLE","isTF","isCO:isLE","isTF:isCO","isTF:isLE","isTF:isCO:isLE")))) + 
+                geom_bar(aes(y = Estimate), position="dodge",stat="identity") +
+                geom_errorbar(aes(ymin = Estimate - Error, ymax = Estimate + Error), width = 0.5, size = 1.2, color = "black") +
+                ylab("ANOVA Model Estimate: Einfluss auf die Halbwertszeit [min]") +
+                xlab("Gruppe") + 
+                theme(axis.title.x = element_text(size=12), 
+                      axis.title.y = element_text(size=12),  
+                      axis.text.x = element_text(size=12),  
+                      axis.text.y = element_text(size=12))
+    
+# speichere Ergebnisse
+savePlot(barANOVA, "barANOVA", w = 8, h = 4)
+```
+
+```{r Akaike's Information Criterion, echo=FALSE, eval = TRUE}
+AIC(ANOVAmodel1, ANOVAmodel2) 
+```
+
+### 7. Mapping Verluste
+```{r Datenverlust: Ergänzung d. Gene Symbols, echo=FALSE, eval = TRUE,  message= FALSE}
+lossSymbol <- data.frame(nrow(hg38_pivot_unique), 
+                     nrow(hg38_pivot_symbl), 
+                     1-nrow(hg38_pivot_symbl)/nrow(hg38_pivot_unique),
+                     row.names = "all genes")
+colnames(lossSymbol) <- c("Unique Gene in hg38", "Davon gemappt auf Gene Symbols", "Mapping Verlust")
+```
+
+```{r Datenverlust: Ergänzung d. Transkriptionsfaktordaten, echo=FALSE, eval = TRUE,  message= FALSE}
+lossTFs <- data.frame(nrow(hg38_pivot_symbl), 
+                     nrow(hg38_pivot_TF), 
+                     1-nrow(hg38_pivot_TF)/nrow(hg38_pivot_symbl),
+                     row.names = "all genes")
+colnames(lossTFs) <- c("hg38 inkl Gene Symbols", "Davon gemappt auf TFs", "Mapping Verlust")
+```
+
+```{r Datenverlust: Ergänzung d. Halbwertszeitdaten, echo=FALSE, eval = TRUE,  message= FALSE}
+lossHalf <- data.frame(nrow(hg38_pivot_TF), 
+                     nrow(hg38_pivot_half), 
+                     1-nrow(hg38_pivot_half)/nrow(hg38_pivot_TF),
+                     row.names = "all genes")
+colnames(lossHalf) <- c("hg38 inkl TFs", "Davon gemappt auf Halbwertszeit", "Mapping Verlust")
+```
+
